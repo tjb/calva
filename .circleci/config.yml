@@ -30,8 +30,7 @@ jobs:
     steps:
       - attach_workspace:
           at: /tmp
-      - checkout:
-          path: ~/calva
+      - checkout
       - restore_cache:
           name: Restore dependencies
           key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
@@ -86,7 +85,7 @@ jobs:
           name: Save dependencies
           key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
           paths:
-            - ./node_modules
+            - .
             - ~/.m2
       - store_artifacts:
           path: /tmp/artifacts
@@ -228,9 +227,9 @@ jobs:
           at: /tmp
       - checkout:
           path: ~/calva
-      - restore_cache:
-          name: Restore dependencies
-          key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
+      # - restore_cache:
+      #     name: Restore dependencies
+      #     key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
       - run:
           name: Publish to the marketplace
           command: |
