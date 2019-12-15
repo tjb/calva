@@ -23,6 +23,78 @@ jobs:
           paths:
             - ./node_modules
             - ~/.m2
+  build:
+    docker:
+      - image: circleci/openjdk:11.0.4-stretch-node
+    working_directory: ~/calva
+    steps:
+      - attach_workspace:
+          at: /tmp
+      - checkout:
+          path: ~/calva
+      - restore_cache:
+          name: Restore dependencies
+          key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
+      - run:
+          name: Install node_modules
+          command: cp package.json /tmp && npm install && cp /tmp/package.json .
+      - run:
+          name: Install CLJS dependencies
+          command: npx shadow-cljs classpath
+      - run:
+          name: "Create artifacts workspace"
+          command: mkdir /tmp/artifacts
+      - run:
+          name: Tamper Calva version if not release versioned
+          command: |
+            VERSION=$(node -p 'require("./package.json").version')
+            TAG_VERSION=NO-TAG
+            if [[ "${CIRCLE_TAG}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]
+            then
+              TAG_VERSION=${BASH_REMATCH[1]}
+              echo 'No version tampering because this is a release tag'
+            else
+              COMMIT=${CIRCLE_SHA1:0:8}
+              if [[  "${CIRCLE_TAG}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-(.*) ]]
+              then
+                TAG_VERSION=${BASH_REMATCH[1]}
+                TAG_TITLE=${BASH_REMATCH[2]}
+                PRERELEASE=${TAG_TITLE}-${COMMIT}
+              else
+                BRANCH=${CIRCLE_BRANCH//[^[:alnum:]]/-}
+                PRERELEASE=${BRANCH}-${COMMIT}
+              fi
+              echo "Append prerelease to version: -${PRERELEASE}"
+              npx json -I -f package.json -e 'this.version=this.version.replace(/$/,"-'${PRERELEASE}'")'
+            fi
+            if [ ${TAG_VERSION} = NO-TAG -o "${TAG_VERSION}" = "${VERSION}" ]
+            then
+              VERSION=$(node -p 'require("./package.json").version')
+              echo "Using version: ${VERSION}"
+            else
+              echo >&2 "FATAL! Version missmatch between package.json and tag. Aborting."
+              exit 1
+            fi
+      - run:
+          name: Package vsix
+          command: npx vsce package
+      - run:
+          name: Copy vsix
+          command: |
+            cp *.vsix /tmp/artifacts/
+      - save_cache:
+          name: Save dependencies
+          key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
+          paths:
+            - ./node_modules
+            - ~/.m2
+      - store_artifacts:
+          path: /tmp/artifacts
+      - persist_to_workspace:
+          root: /tmp
+          paths:
+            - artifacts
+            - env
   test-grammar:
     working_directory: ~/calva
     environment:
@@ -81,8 +153,8 @@ jobs:
           name: Restore dependencies
           key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
       - run:
-          name: Compile and Run Tests (Cljs)
-          command: npm run compile-cljs
+          name: Run CLJS Tests
+          command: npm run calva-lib-test
       - store_test_results:
           path: ~/calva/junit
   test-ts-unit:
@@ -96,7 +168,7 @@ jobs:
           name: Restore dependencies
           key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
       - run:
-          name: Run Unit Tests
+          name: Run TS Unit Tests
           command: npm run unit-test
       - store_test_results:
           path: ~/calva/junit
@@ -118,64 +190,6 @@ jobs:
           command: npm run integration-test
       - store_test_results:
           path: ~/calva/junit
-  build:
-    docker:
-      - image: circleci/openjdk:11.0.4-stretch-node
-    working_directory: ~/calva
-    steps:
-      - checkout:
-          path: ~/calva
-      - restore_cache:
-          name: Restore dependencies
-          key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
-      - run:
-          name: "Create artifacts workspace"
-          command: mkdir /tmp/artifacts
-      - run:
-          name: Tamper Calva version if not release versioned
-          command: |
-            VERSION=$(node -p 'require("./package.json").version')
-            TAG_VERSION=NO-TAG
-            if [[ "${CIRCLE_TAG}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]
-            then
-              TAG_VERSION=${BASH_REMATCH[1]}
-              echo 'No version tampering because this is a release tag'
-            else
-              COMMIT=${CIRCLE_SHA1:0:8}
-              if [[  "${CIRCLE_TAG}" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)-(.*) ]]
-              then
-                TAG_VERSION=${BASH_REMATCH[1]}
-                TAG_TITLE=${BASH_REMATCH[2]}
-                PRERELEASE=${TAG_TITLE}-${COMMIT}
-              else
-                BRANCH=${CIRCLE_BRANCH//[^[:alnum:]]/-}
-                PRERELEASE=${BRANCH}-${COMMIT}
-              fi
-              echo "Append prerelease to version: -${PRERELEASE}"
-              npx json -I -f package.json -e 'this.version=this.version.replace(/$/,"-'${PRERELEASE}'")'
-            fi
-            if [ ${TAG_VERSION} = NO-TAG -o "${TAG_VERSION}" = "${VERSION}" ]
-            then
-              VERSION=$(node -p 'require("./package.json").version')
-              echo "Using version: ${VERSION}"
-            else
-              echo >&2 "FATAL! Version missmatch between package.json and tag. Aborting."
-              exit 1
-            fi
-      - run:
-          name: Package vsix
-          command: npx vsce package
-      - run:
-          name: Copy vsix
-          command: |
-            cp *.vsix /tmp/artifacts/
-      - store_artifacts:
-          path: /tmp/artifacts
-      - persist_to_workspace:
-          root: /tmp
-          paths:
-            - artifacts
-            - env
   github-release:
     docker:
       - image: cibuilds/github:0.10
@@ -230,33 +244,27 @@ jobs:
 workflows:
   version: 2
   # We have two workflows, because for some reason the tag filter need to be on all jobs...
-  test-build:
+  build-test:
     jobs:
-      - install-deps:
+      - build:
           filters:
             tags:
               ignore: /^v\d+\.\d+\.\d+-?.*/
       - test-grammar:
           requires:
-            - install-deps
+            - build
       - test-cljslib:
           requires:
-            - install-deps
+            - build
       - test-integration:
           requires:
-            - install-deps
+            - build
       - test-ts-unit:
           requires:
-            - install-deps
-      - build:
-          requires:
-            - test-grammar
-            - test-cljslib
-            - test-integration
-            - test-ts-unit
+            - build
   test-build-release-publish:
     jobs:
-      - install-deps:
+      - build:
           filters:
             branches:
               ignore: /.*/
@@ -264,7 +272,7 @@ workflows:
               only: /^v\d+\.\d+\.\d+-?.*/
       - test-grammar:
           requires:
-            - install-deps
+            - build
           filters:
             branches:
               ignore: /.*/
@@ -272,7 +280,7 @@ workflows:
               only: /^v\d+\.\d+\.\d+-?.*/
       - test-cljslib:
           requires:
-            - install-deps
+            - build
           filters:
             branches:
               ignore: /.*/
@@ -280,7 +288,7 @@ workflows:
               only: /^v\d+\.\d+\.\d+-?.*/
       - test-integration:
           requires:
-            - install-deps
+            - build
           filters:
             branches:
               ignore: /.*/
@@ -288,18 +296,7 @@ workflows:
               only: /^v\d+\.\d+\.\d+-?.*/
       - test-ts-unit:
           requires:
-            - install-deps
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /^v\d+\.\d+\.\d+-?.*/
-      - build:
-          requires:
-            - test-grammar
-            - test-cljslib
-            - test-integration
-            - test-ts-unit
+            - build
           filters:
             branches:
               ignore: /.*/
