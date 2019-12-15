@@ -30,7 +30,8 @@ jobs:
     steps:
       - attach_workspace:
           at: /tmp
-      - checkout
+      - checkout:
+          path: ~/calva
       - restore_cache:
           name: Restore dependencies
           key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
@@ -43,6 +44,9 @@ jobs:
       - run:
           name: "Create artifacts workspace"
           command: mkdir /tmp/artifacts
+      - run:
+          name: "Create build workspace"
+          command: mkdir /tmp/build
       - run:
           name: Tamper Calva version if not release versioned
           command: |
@@ -81,11 +85,15 @@ jobs:
           name: Copy vsix
           command: |
             cp *.vsix /tmp/artifacts/
+      - run:
+          name: Copy build
+          command: |
+            cp -r * /tmp/build/
       - save_cache:
           name: Save dependencies
           key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
           paths:
-            - .
+            - ./node_modules
             - ~/.m2
       - store_artifacts:
           path: /tmp/artifacts
@@ -146,11 +154,11 @@ jobs:
       - image: circleci/openjdk:11.0.4-stretch-node-browsers
     working_directory: ~/calva
     steps:
-      - checkout:
-          path: ~/calva
-      - restore_cache:
-          name: Restore dependencies
-          key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
+      - attach_workspace:
+          at: /tmp
+      - run:
+          name: Restore build
+          command: cp -r /tmp/build/* .
       - run:
           name: Run CLJS Tests
           command: npm run calva-lib-test
@@ -161,11 +169,11 @@ jobs:
       - image: circleci/openjdk:11.0.4-stretch-node-browsers
     working_directory: ~/calva
     steps:
-      - checkout:
-          path: ~/calva
-      - restore_cache:
-          name: Restore dependencies
-          key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
+      - attach_workspace:
+          at: /tmp
+      - run:
+          name: Restore build
+          command: cp -r /tmp/build/* .
       - run:
           name: Run TS Unit Tests
           command: npm run unit-test
@@ -176,11 +184,11 @@ jobs:
       - image: circleci/openjdk:11.0.4-stretch-node-browsers
     working_directory: ~/calva
     steps:
-      - checkout:
-          path: ~/calva
-      - restore_cache:
-          name: Restore dependencies
-          key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
+      - attach_workspace:
+          at: /tmp
+      - run:
+          name: Restore build
+          command: cp -r /tmp/build/* .
       - run:
           name: Compile Extension Tests
           command: npm run compile-test
@@ -193,10 +201,11 @@ jobs:
     docker:
       - image: cibuilds/github:0.10
     steps:
-      - checkout:
-          path: ~/calva
       - attach_workspace:
           at: /tmp
+      - run:
+          name: Restore build
+          command: cp -r /tmp/build/* .
       - run:
           name: "Publish Release on GitHub"
           command: |
@@ -225,11 +234,9 @@ jobs:
     steps:
       - attach_workspace:
           at: /tmp
-      - checkout:
-          path: ~/calva
-      # - restore_cache:
-      #     name: Restore dependencies
-      #     key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
+      - run:
+          name: Restore build
+          command: cp -r /tmp/build/* .
       - run:
           name: Publish to the marketplace
           command: |
