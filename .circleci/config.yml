@@ -101,6 +101,7 @@ jobs:
           root: /tmp
           paths:
             - artifacts
+            - build
             - env
   test-grammar:
     working_directory: ~/calva
