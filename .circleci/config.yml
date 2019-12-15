@@ -1,28 +1,5 @@
 version: 2
 jobs:
-  install-deps:
-    working_directory: ~/calva
-    docker:
-      - image: circleci/openjdk:11.0.4-stretch-node
-    steps:
-      - attach_workspace:
-          at: /tmp
-      - checkout
-      - restore_cache:
-          name: Restore dependencies
-          key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
-      - run:
-          name: Install node_modules
-          command: cp package.json /tmp && npm install && cp /tmp/package.json .
-      - run:
-          name: Install CLJS dependencies
-          command: npx shadow-cljs classpath
-      - save_cache:
-          name: Save dependencies
-          key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
-          paths:
-            - ./node_modules
-            - ~/.m2
   build:
     docker:
       - image: circleci/openjdk:11.0.4-stretch-node
@@ -115,10 +92,11 @@ jobs:
     docker:
       - image: circleci/node:latest
     steps:
-      - checkout
-      - restore_cache:
-          name: Restore dependencies
-          key: ts-{{ checksum "package.json" }}-cljs-{{ checksum "shadow-cljs.edn" }}-grammar-{{ checksum "src/calva-fmt/atom-language-clojure/package.json" }}
+      - attach_workspace:
+          at: /tmp
+      - run:
+          name: Restore build
+          command: cp -r /tmp/build/* .
       - run:
           name: Update system package lists
           command: sudo apt-get update
@@ -152,7 +130,7 @@ jobs:
             - ./node_modules
   test-cljslib:
     docker:
-      - image: circleci/openjdk:11.0.4-stretch-node-browsers
+      - image: circleci/node:latest
     working_directory: ~/calva
     steps:
       - attach_workspace:
@@ -167,7 +145,7 @@ jobs:
           path: ~/calva/junit
   test-ts-unit:
     docker:
-      - image: circleci/openjdk:11.0.4-stretch-node-browsers
+      - image: circleci/node:latest
     working_directory: ~/calva
     steps:
       - attach_workspace:
@@ -182,7 +160,7 @@ jobs:
           path: ~/calva/junit
   test-integration:
     docker:
-      - image: circleci/openjdk:11.0.4-stretch-node-browsers
+      - image: circleci/node:latest
     working_directory: ~/calva
     steps:
       - attach_workspace:
@@ -230,7 +208,7 @@ jobs:
             ${GHR_CMD} -t ${GITHUB_TOKEN} ${EXTRA_RELEASE_OPTIONS} -u ${CIRCLE_PROJECT_USERNAME} -r ${CIRCLE_PROJECT_REPONAME} -b "${BODY}" -c ${CIRCLE_SHA1} -delete ${CIRCLE_TAG} /tmp/artifacts/
   marketplace-publish:
     docker:
-      - image: circleci/openjdk:11.0.4-stretch-node
+      - image: circleci/node:latest
     working_directory: ~/calva
     steps:
       - attach_workspace:
