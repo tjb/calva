@@ -160,7 +160,7 @@ jobs:
           path: ~/calva/junit
   test-integration:
     docker:
-      - image: circleci/node:latest
+      - image: circleci/node:stretch
     working_directory: ~/calva
     steps:
       - attach_workspace:
