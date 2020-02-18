@@ -8,7 +8,7 @@ import * as util from '../../utilities';
 import { LispTokenCursor } from '../../cursor-doc/token-cursor';
 
 export function activate(context: vscode.ExtensionContext) {
-  function position_str(pos: Position) { return "" + pos.line + ":" + pos.character; }
+  function position_str(pos: number) { return "" + pos; }
   function is_clojure(editor) { return !!editor && editor.document.languageId === "clojure"; }
 
   let activeEditor: vscode.TextEditor = vscode.window.activeTextEditor,
@@ -24,8 +24,8 @@ export function activate(context: vscode.ExtensionContext) {
     ignoredFormStyle,
     ignoredFormType: vscode.TextEditorDecorationType,
     enableBracketColors,
-    pairsBack: Map<string, [Range, Range]> = new Map(),
-    pairsForward: Map<string, [Range, Range]> = new Map(),
+    pairsBack: Map<string, [[number, number], [number, number]]> = new Map(),
+    pairsForward: Map<string, [[number, number], [number, number]]> = new Map(),
     rainbowTimer = undefined,
     dirty = false;
 
@@ -170,8 +170,8 @@ export function activate(context: vscode.ExtensionContext) {
 
     let in_comment = false,
       ignore_counter = 0,
-      ignore_start: Position,
-      ignored_text_start: Position,
+      ignore_start: number,
+      ignored_text_start: number,
       ignored_list_opened = false,
       ignore_pushed_by_closing = false,
       in_comment_form = false,
@@ -180,11 +180,10 @@ export function activate(context: vscode.ExtensionContext) {
     pairsBack = new Map();
     pairsForward = new Map();
     const visibleTopLevelRanges = util.filterVisibleRanges(activeEditor, toplevelRanges);
-    console.log(visibleTopLevelRanges);
-    visibleTopLevelRanges.forEach(range => {
-      const rangeStart = doc.offsetAt(range.start),
-        rangeEnd = doc.offsetAt(range.end),
-        cursor = docMirror.getDocument(doc).getTokenCursor(rangeStart);
+//    visibleTopLevelRanges.forEach(range => {
+      const // rangeStart = doc.offsetAt(range.start),
+        // rangeEnd = doc.offsetAt(range.end),
+        cursor = docMirror.getDocument(doc).getTokenCursor(0);
       do {
         const token: Token = cursor.getToken(),
           char: string = token.raw;
@@ -196,9 +195,9 @@ export function activate(context: vscode.ExtensionContext) {
           continue;
         } else if (char.startsWith('#_')) {
           if (ignore_counter == 0) {
-            ignore_start = activeEditor.document.positionAt(cursor.offsetStart);
+            ignore_start = cursor.offsetStart;
           }
-          ignored_text_start = activeEditor.document.positionAt(cursor.offsetEnd);
+          ignored_text_start = cursor.offsetEnd;
           ignore_counter++
           continue;
         } else if (char === ";") {
@@ -206,10 +205,10 @@ export function activate(context: vscode.ExtensionContext) {
           continue;
         } else if (token.type === 'ws') {
           if (ignore_counter > 0 && !ignored_list_opened) {
-            ignored_text_start = activeEditor.document.positionAt(cursor.offsetEnd);
+            ignored_text_start = cursor.offsetEnd;
             if (!ignore_pushed_by_closing) {
               ignore_counter--;
-              ignores.push(new Range(ignore_start, activeEditor.document.positionAt(cursor.offsetStart)));
+              ignores.push([ignore_start, cursor.offsetStart]);
             }
           }
           ignore_pushed_by_closing = false;
@@ -225,21 +224,21 @@ export function activate(context: vscode.ExtensionContext) {
             }
           }
           if (token.type === 'open') {
-            const pos = activeEditor.document.positionAt(cursor.offsetStart);
+            const pos = cursor.offsetStart;
             if (colorsEnabled && char !== '"') {
-              const decoration = { range: new Range(pos, pos.translate(0, charLength)) };
+              const decoration = { range: [pos, pos + charLength] };
               rainbow[colorIndex(stack_depth)].push(decoration);
             }
             ++stack_depth;
-            const opens_ignore = ignore_counter > 0 && !ignored_list_opened && pos.isEqual(ignored_text_start);
+            const opens_ignore = ignore_counter > 0 && !ignored_list_opened && pos === ignored_text_start;
             if (opens_ignore) {
               ignored_list_opened = opens_ignore;
             }
             stack.push({ char: char, pos: pos, pair_idx: undefined, opens_comment_form: false, opens_ignore: opens_ignore });
             continue;
           } else if (token.type === 'close') {
-            const pos = activeEditor.document.positionAt(cursor.offsetStart),
-              decoration = { range: new Range(pos, pos.translate(0, 1)) };
+            const pos = cursor.offsetStart,
+              decoration = { range: [pos, pos + 1] };
             var pair_idx = stack.length - 1;
             while (pair_idx >= 0 && stack[pair_idx].pair_idx !== undefined) {
               pair_idx = stack[pair_idx].pair_idx - 1;
@@ -248,25 +247,25 @@ export function activate(context: vscode.ExtensionContext) {
               misplaced.push(decoration);
             } else {
               let pair = stack[pair_idx],
-                closing = new Range(pos, pos.translate(0, charLength)),
-                opening = new Range(pair.pos, pair.pos.translate(0, pair.char.length));
+                closing: [number, number] = [pos, pos + charLength],
+                opening: [number, number] = [pair.pos, pair.pos + pair.char.length];
               if (in_comment_form && pair.opens_comment_form) {
-                comment_forms.push(new Range(pair.pos, pos.translate(0, charLength)));
+                comment_forms.push([pair.pos, pos + charLength]);
                 in_comment_form = false;
               }
               if (ignore_counter > 0 && (pair.opens_ignore || !ignored_list_opened)) {
-                const ignore_end = ignored_list_opened ? pos.translate(0, charLength) : pos;
+                const ignore_end = ignored_list_opened ? pos + charLength : pos;
                 ignore_counter--;
-                ignores.push(new Range(ignore_start, ignore_end));
+                ignores.push([ignore_start, ignore_end]);
                 ignored_list_opened = false;
-                ignored_text_start = activeEditor.document.positionAt(cursor.offsetEnd);
+                ignored_text_start = cursor.offsetEnd;
                 ignore_pushed_by_closing = true;
               }
               stack.push({ char: char, pos: pos, pair_idx: pair_idx });
               for (let i = 0; i < charLength; ++i)
-                pairsBack.set(position_str(pos.translate(0, i)), [opening, closing]);
+                pairsBack.set(position_str(pos + i), [opening, closing]);
               for (let i = 0; i < pair.char.length; ++i)
-                pairsForward.set(position_str(pair.pos.translate(0, i)), [opening, closing]);
+                pairsForward.set(position_str(pair.pos + i), [opening, closing]);
               --stack_depth;
               if (colorsEnabled && char !== '"') {
                 rainbow[colorIndex(stack_depth)].push(decoration);
@@ -275,18 +274,19 @@ export function activate(context: vscode.ExtensionContext) {
             continue;
           }
         }
-      } while (cursor.offsetStart < rangeEnd && cursor.next());
-    });
+      } while (cursor.next());
+      // } while (cursor.offsetStart < rangeEnd && cursor.next());
+//    });
 
     console.log("Highlight parsing took: ", new Date().valueOf() - t1.valueOf());
 
-    for (var i = 0; i < rainbowTypes.length; ++i) {
-      activeEditor.setDecorations(rainbowTypes[i], rainbow[i]);
-    }
-    activeEditor.setDecorations(misplacedType, misplaced);
-    activeEditor.setDecorations(commentFormType, comment_forms);
-    activeEditor.setDecorations(ignoredFormType, ignores);
-    matchPairs();
+    // for (var i = 0; i < rainbowTypes.length; ++i) {
+    //   activeEditor.setDecorations(rainbowTypes[i], rainbow[i]);
+    // }
+    // activeEditor.setDecorations(misplacedType, misplaced);
+    // activeEditor.setDecorations(commentFormType, comment_forms);
+    // activeEditor.setDecorations(ignoredFormType, ignores);
+    // matchPairs();
   }
 
   function matchBefore(selection) {
