@@ -155,11 +155,6 @@ export function activate(context: vscode.ExtensionContext) {
     const t1 = new Date();
 
     const doc = activeEditor.document,
-      tokenCursor = docMirror.getDocument(doc).getTokenCursor(0),
-      toplevelRanges = tokenCursor.rangesForTopLevelForms()
-        .map((r: [number, number]) => {
-          return new Range(doc.positionAt(r[0]), doc.positionAt(r[1]));
-        }),
       rainbow = rainbowTypes.map(() => []),
       misplaced = [],
       comment_forms = [],
@@ -179,12 +174,17 @@ export function activate(context: vscode.ExtensionContext) {
       stack_depth = 0;
     pairsBack = new Map();
     pairsForward = new Map();
-    const visibleTopLevelRanges = util.filterVisibleRanges(activeEditor, toplevelRanges);
-    console.log(visibleTopLevelRanges);
-    visibleTopLevelRanges.forEach(range => {
-      const rangeStart = doc.offsetAt(range.start),
-        rangeEnd = doc.offsetAt(range.end),
+    activeEditor.visibleRanges.forEach(range => {
+      const startOffset = doc.offsetAt(range.start),
+        endOffset =doc.offsetAt(range.end),
+        startCursor: LispTokenCursor = docMirror.getDocument(doc).getTokenCursor(startOffset),
+        endCursor: LispTokenCursor = docMirror.getDocument(doc).getTokenCursor(endOffset),
+        startRange = startCursor.rangeForDefun(startOffset),
+        endRange = endCursor.rangeForDefun(endOffset),
+        rangeStart = startRange[0],
+        rangeEnd = endRange[1],
         cursor: LispTokenCursor = docMirror.getDocument(doc).getTokenCursor(rangeStart);
+
       do {
         cursor.backwardSexp()
       } while (!cursor.atStart() && !cursor.getToken().raw.startsWith('#_'));
@@ -216,10 +216,10 @@ export function activate(context: vscode.ExtensionContext) {
             }
           }
           ignore_pushed_by_closing = false;
-          while (['ws', 'eol'].includes(cursor.getToken().type)) {
-            cursor.forwardWhitespace();
-          }
-          cursor.previous();
+          // while (['ws', 'eol'].includes(cursor.getToken().type)) {
+          //   cursor.forwardWhitespace();
+          // }
+          // cursor.previous();
           continue;
         } else {
           const charLength = char.length;
