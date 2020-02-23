@@ -1,5 +1,5 @@
 import { LineInputModel } from "./model";
-import { Token } from "./clojure-lexer";
+import { Token, validPair } from "./clojure-lexer";
 
 
 function tokenIsWhiteSpace(token: Token) {
@@ -190,7 +190,7 @@ export class LispTokenCursor extends TokenCursor {
      */
     forwardSexp(skipComments = true): boolean {
         // TODO: Consider using a proper bracket stack
-        let delta = 0;
+        let stack = [];
         this.forwardWhitespace(skipComments);
         if (this.getToken().type == "close") {
             return false;
@@ -210,17 +210,21 @@ export class LispTokenCursor extends TokenCursor {
                 case 'junk':
                 case 'str-inside':
                     this.next();
-                    if (delta <= 0)
+                    if (stack.length <= 0)
                         return true;
                     break;
                 case 'close':
-                    delta--;
+                    const open = stack[stack.length - 1],
+                        close = tk.raw;
+                    if (validPair(open, close)) {
+                        stack.pop();
+                    }
                     this.next();
-                    if (delta <= 0)
+                    if (stack.length <= 0)
                         return true;
                     break;
                 case 'open':
-                    delta++;
+                    stack.push(tk.raw);
                     this.next();
                     break;
                 default:
@@ -244,7 +248,7 @@ export class LispTokenCursor extends TokenCursor {
      * @returns true if the cursor was moved, false otherwise.
      */
     backwardSexp(skipComments = true) {
-        let delta = 0;
+        let stack = [];
         this.backwardWhitespace(skipComments);
         if (this.getPrevToken().type === 'open') {
             return false;
@@ -262,17 +266,21 @@ export class LispTokenCursor extends TokenCursor {
                 case 'comment':
                 case 'str-inside':
                     this.previous();
-                    if (delta <= 0)
+                    if (stack.length <= 0)
                         return true;
                     break;
                 case 'close':
-                    delta++;
+                    stack.push(tk.raw);
                     this.previous();
                     break;
                 case 'open':
-                    delta--;
+                    const open = tk.raw,
+                        close = stack[stack.length - 1];
+                    if (validPair(open, close)) {
+                        stack.pop();
+                    }
                     this.previous();
-                    if (delta <= 0)
+                    if (stack.length <= 0)
                         return true;
                     break;
                 default:
