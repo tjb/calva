@@ -179,6 +179,8 @@ export class LispTokenCursor extends TokenCursor {
 
     // Lisp navigation commands begin here.
 
+    // TODO: When f/b sexp, use the stack knowledge to ”flag” unbalance
+
     /**
      * Moves this token forward one s-expression at this level.
      * If the next non whitespace token is an open paren, skips past it's matching
@@ -214,10 +216,12 @@ export class LispTokenCursor extends TokenCursor {
                         return true;
                     break;
                 case 'close':
-                    const open = stack[stack.length - 1],
-                        close = tk.raw;
-                    if (validPair(open, close)) {
-                        stack.pop();
+                    const close = tk.raw;
+                    let open: string;
+                    while (open = stack.pop()) {
+                        if (validPair(open, close)) {
+                            break;
+                        }
                     }
                     this.next();
                     if (stack.length <= 0)
@@ -240,10 +244,6 @@ export class LispTokenCursor extends TokenCursor {
      * open paren.
      *
      * If the previous token is a form of open paren, does not move.
-     *
-     * Note. The cursor won't move when ”on” the first sexp inside a list.
-     *       TODO: Fix this. (Probably the only way is to give the cursor knowledge
-     *             about the offset it was created from.)
      *
      * @returns true if the cursor was moved, false otherwise.
      */
@@ -274,10 +274,12 @@ export class LispTokenCursor extends TokenCursor {
                     this.previous();
                     break;
                 case 'open':
-                    const open = tk.raw,
-                        close = stack[stack.length - 1];
-                    if (validPair(open, close)) {
-                        stack.pop();
+                    const open = tk.raw;
+                    let close: string;
+                    while (close = stack.pop()) {
+                        if (validPair(open, close)) {
+                            break;
+                        }
                     }
                     this.previous();
                     if (stack.length <= 0)
