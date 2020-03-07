@@ -103,7 +103,8 @@ inString.terminal(/(\r?\n)/, (l, m) => ({ type: "ws" }))
  */
 export interface ScannerState {
     /** Are we scanning inside a string? If so use inString grammar, otherwise use toplevel. */
-    inString: boolean
+    inString: boolean,
+    currentReaderToken: LexerToken
 }
 
 /**
@@ -111,7 +112,11 @@ export interface ScannerState {
  * Takes a line of text and a start state, and returns an array of Token, updating its internal state.
  */
 export class Scanner {
-    state: ScannerState = { inString: false };
+    state: ScannerState = {
+        // TODO: These should never be both true
+        inString: false,
+        currentReaderToken: undefined
+     };
 
     constructor(private maxLength: number) {}
 
@@ -137,6 +142,18 @@ export class Scanner {
                             lex = toplevel.lex(line, this.maxLength);
                             lex.position = oldpos;
                             break;
+                    }
+                } else if (tk.type === 'reader') {
+                    this.state.currentReaderToken = tk;
+                    continue;
+                } else if (this.state.currentReaderToken) {
+                    if (['ws', 'comment'].includes(tk.type)) {
+                        this.state.currentReaderToken.raw += tk.raw;
+                        continue;
+                    } else {
+                        tk.offset = this.state.currentReaderToken.offset;
+                        tk.raw = this.state.currentReaderToken.raw + '\n' + tk.raw;
+                        this.state.currentReaderToken = undefined;
                     }
                 }
                 tks.push({ ...tk, state: this.state });
