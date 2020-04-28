@@ -31,6 +31,16 @@ const DEBUG_RESPONSE_KEY = 'debug-response';
 const DEBUG_QUIT_VALUE = 'QUIT';
 const LOCALS_REFERENCE = 1;
 
+async function isMap(data: string, cljSession: NReplSession): Promise<boolean> {
+    const res = await cljSession.eval(`(map? ${data})`, 'user').value;
+    return res === 'true';
+}
+
+async function isCollection(data: string, cljSession: NReplSession): Promise<boolean> {
+    const res = await cljSession.eval(`(seqable? ${data})`, 'user').value;
+    return res === 'true';
+}
+
 class CalvaDebugSession extends LoggingDebugSession {
 
     // We don't support multiple threads, so we can use a hardcoded ID for the default thread
@@ -248,6 +258,9 @@ class CalvaDebugSession extends LoggingDebugSession {
             variables = await Promise.all(debugResponse.locals.map(async ([name, value]) => {
                 return await this._createVariable(name, value, cljSession);
             }));
+        } else {
+            const varStringValue = this._variableHandles.get(args.variablesReference);
+
         }
         response.body = {
             variables
