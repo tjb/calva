@@ -14,6 +14,7 @@ import { replWindows } from '../repl-window';
 import { moveTokenCursorToBreakpoint } from './util';
 import annotations from '../providers/annotations';
 import { NReplSession } from '../nrepl';
+const { parseEdn } = require('../../out/cljs-lib/cljs-lib');
 
 const CALVA_DEBUG_CONFIGURATION: DebugConfiguration = {
     type: 'clojure',
@@ -32,13 +33,21 @@ const DEBUG_QUIT_VALUE = 'QUIT';
 const LOCALS_REFERENCE = 1;
 
 async function isMap(data: string, cljSession: NReplSession): Promise<boolean> {
-    const res = await cljSession.eval(`(map? ${data})`, 'user').value;
+    const sanitizeCode = `(clojure.edn/read-string {:default str} ${JSON.stringify(data)})`;
+    const sanitized = await cljSession.eval(sanitizeCode, cljSession.client.ns).value;
+    const res = await cljSession.eval(`(map? ${sanitized})`, cljSession.client.ns).value;
     return res === 'true';
 }
 
 async function isCollection(data: string, cljSession: NReplSession): Promise<boolean> {
-    const res = await cljSession.eval(`(seqable? ${data})`, 'user').value;
+    const res = await cljSession.eval(`(seqable? ${data})`, cljSession.client.ns).value;
     return res === 'true';
+}
+
+async function getMapKeyValueStrings(map: string, cljSession: NReplSession): Promise<[[string, string]]> {
+    const code = `(map (fn [[k v]] [(pr-str k) (pr-str v)]) ${map})`;
+    const res = await cljSession.eval(code, cljSession.client.ns).value;
+    return parseEdn(res);
 }
 
 class CalvaDebugSession extends LoggingDebugSession {
@@ -228,16 +237,14 @@ class CalvaDebugSession extends LoggingDebugSession {
     }
 
     private async _createVariable(name: string, value: string, cljSession: NReplSession): Promise<Variable> {
-        const isMap = await cljSession.eval(`(map? ${value})`, 'user').value;
         let variablesReference = 0;
         let variableValue = value;
         
-        if (isMap === 'true') {
+        if (await isMap(value, cljSession)) {
             variableValue = 'map';
             variablesReference = this._variableHandles.create(value);
         } else {
-            const isCollection = await cljSession.eval(`(seqable? ${value})`, 'user').value;
-            if (isCollection === 'true') {
+            if (await isCollection(value, cljSession)) {
                 variableValue = 'collection';
                 variablesReference = this._variableHandles.create(value);
             }
@@ -260,7 +267,17 @@ class CalvaDebugSession extends LoggingDebugSession {
             }));
         } else {
             const varStringValue = this._variableHandles.get(args.variablesReference);
-
+            if (await isMap(varStringValue, cljSession)) {
+                const nameValuePairs = await getMapKeyValueStrings(varStringValue, cljSession);
+                console.log(nameValuePairs);
+                variables = await Promise.all(nameValuePairs.map(async ([name, value]) => {
+                    return await this._createVariable(name, value, cljSession);
+                }));
+            } else if (await isCollection(varStringValue, cljSession)) {
+                console.log('collection');
+            } else {
+                console.log('primitive or unsupported value');
+            }
         }
         response.body = {
             variables
