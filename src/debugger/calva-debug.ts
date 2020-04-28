@@ -13,6 +13,7 @@ import * as vscode from 'vscode';
 import { replWindows } from '../repl-window';
 import { moveTokenCursorToBreakpoint } from './util';
 import annotations from '../providers/annotations';
+import { NReplSession } from '../nrepl';
 
 const CALVA_DEBUG_CONFIGURATION: DebugConfiguration = {
     type: 'clojure',
@@ -28,6 +29,7 @@ const REQUESTS = {
 const NEED_DEBUG_INPUT_STATUS = 'need-debug-input';
 const DEBUG_RESPONSE_KEY = 'debug-response';
 const DEBUG_QUIT_VALUE = 'QUIT';
+const LOCALS_REFERENCE = 1;
 
 class CalvaDebugSession extends LoggingDebugSession {
 
@@ -81,7 +83,7 @@ class CalvaDebugSession extends LoggingDebugSession {
     protected async continueRequest(response: DebugProtocol.ContinueResponse, args: DebugProtocol.ContinueArguments, request?: DebugProtocol.Request): Promise<void> {
 
         const cljSession = util.getSession('clj');
-        
+
         if (cljSession) {
             const { id, key } = state.deref().get(DEBUG_RESPONSE_KEY);
             cljSession.sendDebugInput(':continue', id, key).then(response => {
@@ -100,9 +102,9 @@ class CalvaDebugSession extends LoggingDebugSession {
     }
 
     protected nextRequest(response: DebugProtocol.NextResponse, args: DebugProtocol.NextArguments, request?: DebugProtocol.Request): void {
-        
+
         const cljSession = util.getSession('clj');
-        
+
         if (cljSession) {
             const { id, key } = state.deref().get(DEBUG_RESPONSE_KEY);
             cljSession.sendDebugInput(':next', id, key).then(_ => {
@@ -116,9 +118,9 @@ class CalvaDebugSession extends LoggingDebugSession {
     }
 
     protected stepInRequest(response: DebugProtocol.StepInResponse, args: DebugProtocol.StepInArguments, request?: DebugProtocol.Request): void {
-        
+
         const cljSession = util.getSession('clj');
-        
+
         if (cljSession) {
             const { id, key } = state.deref().get(DEBUG_RESPONSE_KEY);
             cljSession.sendDebugInput(':in', id, key).then(_ => {
@@ -127,14 +129,14 @@ class CalvaDebugSession extends LoggingDebugSession {
         } else {
             response.success = false;
         }
-        
+
         this.sendResponse(response);
     }
 
     protected stepOutRequest(response: DebugProtocol.StepOutResponse, args: DebugProtocol.StepOutArguments, request?: DebugProtocol.Request): void {
-        
+
         const cljSession = util.getSession('clj');
-        
+
         if (cljSession) {
             const { id, key } = state.deref().get(DEBUG_RESPONSE_KEY);
             cljSession.sendDebugInput(':out', id, key).then(_ => {
@@ -208,38 +210,55 @@ class CalvaDebugSession extends LoggingDebugSession {
 
         response.body = {
             scopes: [
-                new Scope("Locals", this._variableHandles.create('locals'), false)
+                new Scope("Locals", LOCALS_REFERENCE, false)
             ]
         };
 
         this.sendResponse(response);
     }
 
-    private _createVariableFromLocal(local: any[]): Variable {
-        return {
-            name: local[0],
-            value: local[1],
-            // DEBUG TODO: May need to check type of value. If it's a map or collection, we may need to set variablesReference to something > 0.
-            /** If variablesReference is > 0, the variable is structured and its children can be retrieved by passing variablesReference to the VariablesRequest. */
-            variablesReference: 0
+    private async _createVariable(name: string, value: string, cljSession: NReplSession): Promise<Variable> {
+        const isMap = await cljSession.eval(`(map? ${value})`, 'user').value;
+        let variablesReference = 0;
+        let variableValue = value;
+        
+        if (isMap === 'true') {
+            variableValue = 'map';
+            variablesReference = this._variableHandles.create(value);
+        } else {
+            const isCollection = await cljSession.eval(`(seqable? ${value})`, 'user').value;
+            if (isCollection === 'true') {
+                variableValue = 'collection';
+                variablesReference = this._variableHandles.create(value);
+            }
         }
+        const variable = {
+            name,
+            value: variableValue,
+            variablesReference
+        };
+        return variable;
     }
 
     protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request): Promise<void> {
-
-        const debugResponse = state.deref().get(DEBUG_RESPONSE_KEY);
-
+        const cljSession = util.getSession('clj');
+        let variables: Variable[];
+        if (args.variablesReference === LOCALS_REFERENCE) {
+            const debugResponse = state.deref().get(DEBUG_RESPONSE_KEY);
+            variables = await Promise.all(debugResponse.locals.map(async ([name, value]) => {
+                return await this._createVariable(name, value, cljSession);
+            }));
+        }
         response.body = {
-            variables: debugResponse.locals.map(this._createVariableFromLocal)
+            variables
         };
-
         this.sendResponse(response);
     }
 
     protected async disconnectRequest(response: DebugProtocol.DisconnectResponse, args: DebugProtocol.DisconnectArguments, request?: DebugProtocol.Request): Promise<void> {
 
         const cljSession = util.getSession('clj');
-        
+
         if (cljSession) {
             const { id, key } = state.deref().get(DEBUG_RESPONSE_KEY);
             cljSession.sendDebugInput(':quit', id, key);
