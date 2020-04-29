@@ -5,16 +5,16 @@ import { NReplSession } from '../nrepl';
 const { parseEdn } = require('../../out/cljs-lib/cljs-lib');
 
 const instrumentedFunctionDecorationType = vscode.window.createTextEditorDecorationType({
-    borderWidth: '1px',
     borderStyle: 'solid',
     overviewRulerColor: 'blue',
+    borderWidth: '1px 0px 1px 0px',
     light: {
-        // This color will be used in light color themes
-        borderColor: 'darkblue'
+        backgroundColor: 'rgba(31, 58, 147, 0.05);',
+        borderColor: 'rgba(31, 58, 147, 1);'
     },
     dark: {
-        // This color will be used in dark color themes
-        borderColor: 'lightblue'
+        backgroundColor: 'rgba(137, 196, 244, 0.1);',
+        borderColor: 'rgba(137, 196, 244, 1);'
     }
 });
 
