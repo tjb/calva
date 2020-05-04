@@ -31,6 +31,7 @@ const NEED_DEBUG_INPUT_STATUS = 'need-debug-input';
 const DEBUG_RESPONSE_KEY = 'debug-response';
 const DEBUG_QUIT_VALUE = 'QUIT';
 const LOCALS_REFERENCE = 1;
+const DEBUG_INPUT_OP = 'debug-input';
 
 async function isMap(data: string, cljSession: NReplSession): Promise<boolean> {
     const sanitizeCode = `(clojure.edn/read-string {:default str} ${JSON.stringify(data)})`;
@@ -262,9 +263,10 @@ class CalvaDebugSession extends LoggingDebugSession {
         let variables: Variable[];
         if (args.variablesReference === LOCALS_REFERENCE) {
             const debugResponse = state.deref().get(DEBUG_RESPONSE_KEY);
-            variables = await Promise.all(debugResponse.locals.map(async ([name, value]) => {
-                return await this._createVariable(name, value, cljSession);
-            }));
+            const varPromises = debugResponse.locals.map(([name, value]) => {
+                return this._createVariable(name, value, cljSession);
+            });
+            variables = await Promise.all(varPromises);
         } else {
             const varStringValue = this._variableHandles.get(args.variablesReference);
             if (await isMap(varStringValue, cljSession)) {
@@ -408,6 +410,7 @@ export {
     NEED_DEBUG_INPUT_STATUS,
     DEBUG_RESPONSE_KEY,
     DEBUG_QUIT_VALUE,
+    DEBUG_INPUT_OP,
     CalvaDebugConfigurationProvider,
     CalvaDebugAdapterDescriptorFactory,
     handleNeedDebugInput

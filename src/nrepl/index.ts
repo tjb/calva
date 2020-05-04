@@ -5,7 +5,7 @@ import * as replWindow from './../repl-window';
 import * as util from '../utilities';
 import { prettyPrint } from '../../out/cljs-lib/cljs-lib';
 import { PrettyPrintingOptions, disabledPrettyPrinter, getServerSidePrinter } from "../printer";
-import { handleNeedDebugInput, NEED_DEBUG_INPUT_STATUS, DEBUG_RESPONSE_KEY, REQUESTS, DEBUG_QUIT_VALUE } from "../debugger/calva-debug";
+import { handleNeedDebugInput, NEED_DEBUG_INPUT_STATUS, DEBUG_RESPONSE_KEY, REQUESTS, DEBUG_QUIT_VALUE, DEBUG_INPUT_OP } from "../debugger/calva-debug";
 import * as vscode from 'vscode';
 import annotations from '../providers/annotations';
 import debugDecorations from '../debugger/decorations';
@@ -275,7 +275,7 @@ export class NReplSession {
             return {
                 id: debugResponse.id,
                 session: debugResponse.session,
-                op: 'debug-input',
+                op: DEBUG_INPUT_OP,
                 input: `{:response :eval, :code ${code}}`,
                 key: debugResponse.key,
                 ...opts,
@@ -561,7 +561,7 @@ export class NReplSession {
 
             const data: any = {
                 id: debugResponseId,
-                op: 'debug-input',
+                op: DEBUG_INPUT_OP,
                 input,
                 key: debugResponseKey,
                 session: this.sessionId
@@ -805,7 +805,7 @@ export class NReplEvaluation {
                         });
                 }
             }
-            if (msg.status && (msg.status.indexOf('done') !== -1 || msg.status.indexOf('need-debug-input') !== -1)) {
+            if (msg.status && (msg.status.indexOf('done') !== -1 || msg.status.indexOf(NEED_DEBUG_INPUT_STATUS) !== -1)) {
                 this.remove();
                 if (this.exception && this.msgValue !== DEBUG_QUIT_VALUE) {
                     this.session.stacktrace().then((stacktrace) => {
