@@ -15,6 +15,7 @@ import { moveTokenCursorToBreakpoint } from './util';
 import annotations from '../providers/annotations';
 import { NReplSession } from '../nrepl';
 const { parseEdn } = require('../../out/cljs-lib/cljs-lib');
+const { cljify, jsify, cljStringify } = require('../../out/cljs-lib/cljs-lib');
 
 const CALVA_DEBUG_CONFIGURATION: DebugConfiguration = {
     type: 'clojure',
@@ -49,6 +50,17 @@ async function getMapKeyValueStrings(map: string, cljSession: NReplSession): Pro
     const code = `(map (fn [[k v]] [(pr-str k) (pr-str v)]) ${map})`;
     const res = await cljSession.eval(code, cljSession.client.ns).value;
     return parseEdn(res);
+}
+
+async function appendTypes(keyValuePairs: [[string, string]], cljSession: NReplSession): Promise<[[string, string, string?]]> {
+    const cljString = cljStringify(keyValuePairs);
+    const code = `(map (fn [[key value]]
+                    (if-let [value-type (get-type value)]
+                      [key value value-type]
+                      [key value]))
+                        ${cljString})`;
+    
+    return [['', '']];
 }
 
 class CalvaDebugSession extends LoggingDebugSession {
@@ -237,19 +249,10 @@ class CalvaDebugSession extends LoggingDebugSession {
         this.sendResponse(response);
     }
 
-    private async _createVariable(name: string, value: string, cljSession: NReplSession): Promise<Variable> {
+    private _createVariable(name: string, value: string, cljSession: NReplSession): Variable {
         let variablesReference = 0;
         let variableValue = value;
         
-        if (await isMap(value, cljSession)) {
-            variableValue = 'map';
-            variablesReference = this._variableHandles.create(value);
-        } else {
-            if (await isCollection(value, cljSession)) {
-                variableValue = 'collection';
-                variablesReference = this._variableHandles.create(value);
-            }
-        }
         const variable = {
             name,
             value: variableValue,
@@ -260,27 +263,17 @@ class CalvaDebugSession extends LoggingDebugSession {
 
     protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request): Promise<void> {
         const cljSession = util.getSession('clj');
-        let variables: Variable[];
+        let keyValuePairs: [[string, string]?] = [];
+
         if (args.variablesReference === LOCALS_REFERENCE) {
             const debugResponse = state.deref().get(DEBUG_RESPONSE_KEY);
-            const varPromises = debugResponse.locals.map(([name, value]) => {
-                return this._createVariable(name, value, cljSession);
-            });
-            variables = await Promise.all(varPromises);
-        } else {
-            const varStringValue = this._variableHandles.get(args.variablesReference);
-            if (await isMap(varStringValue, cljSession)) {
-                const nameValuePairs = await getMapKeyValueStrings(varStringValue, cljSession);
-                console.log(nameValuePairs);
-                variables = await Promise.all(nameValuePairs.map(async ([name, value]) => {
-                    return await this._createVariable(name, value, cljSession);
-                }));
-            } else if (await isCollection(varStringValue, cljSession)) {
-                console.log('collection');
-            } else {
-                console.log('primitive or unsupported value');
-            }
+            keyValuePairs = debugResponse.locals;
         }
+
+        const variables = keyValuePairs.map(([key, value]) => {
+            return this._createVariable(key, value, cljSession);
+        });
+
         response.body = {
             variables
         };

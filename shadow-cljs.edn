@@ -15,6 +15,7 @@
                              :inferParens calva.fmt.inferer/infer-parens-bridge
                              :jsify calva.js-utils/jsify
                              :cljify calva.js-utils/cljify
+                             :cljStringify calva.js-utils/clj-stringify
                              :prettyPrint calva.pprint.printer/pretty-print-js-bridge
                              :parseEdn calva.parse/parse-edn-js-bridge
                              :parseForms calva.parse/parse-forms-js-bridge}

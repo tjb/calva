@@ -1,8 +1,6 @@
 (ns calva.js-utils
   (:require [cljs.reader]
-   [cljs.tools.reader :as tr]
-   [cljs.tools.reader.reader-types :as rt]
-   [cljs.test :refer [is]]))
+            [cljs.test :refer [is]]))
 
 (defn jsify
   "Converts clojure data to js data"
@@ -16,4 +14,9 @@
 
 (defn cljify [o]
   (js->clj o :keywordize-keys true))
+
+(defn clj-stringify [o]
+  (-> o
+      js->clj
+      prn-str))
 
