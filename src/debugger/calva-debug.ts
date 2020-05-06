@@ -52,14 +52,21 @@ async function getMapKeyValueStrings(map: string, cljSession: NReplSession): Pro
     return parseEdn(res);
 }
 
-async function appendTypes(keyValuePairs: [[string, string]], cljSession: NReplSession): Promise<[[string, string, string?]]> {
+async function appendTypes(path: string[], keyValuePairs: [[string, string]?], cljSession: NReplSession): Promise<[[string, string, string?]]> {
     const cljString = cljStringify(keyValuePairs);
-    const code = `(map (fn [[key value]]
-                    (if-let [value-type (get-type value)]
-                      [key value value-type]
-                      [key value]))
-                        ${cljString})`;
-    
+    const code = `
+      (map (fn [[key value]]
+        (let [get-type 
+              (fn get-type [edn-string]
+                (let [edn (clojure.edn/read-string edn-string)]
+                  (when (or (map? edn) (seqable? edn))
+                    (when-not (string? edn)
+                      (pr-str (type edn))))))]
+          (if-let [value-type (get-type value)]
+            [key value value-type]
+            [key value])))
+        ${cljString})`;
+    const res = await cljSession.eval(code, cljSession.client.ns).value;
     return [['', '']];
 }
 
@@ -68,7 +75,7 @@ class CalvaDebugSession extends LoggingDebugSession {
     // We don't support multiple threads, so we can use a hardcoded ID for the default thread
     static THREAD_ID = 1;
 
-    private _variableHandles = new Handles<string>();
+    private _variableHandles = new Handles<string[]>();
 
     public constructor() {
         super('calva-debug-logs.txt');
@@ -249,12 +256,12 @@ class CalvaDebugSession extends LoggingDebugSession {
         this.sendResponse(response);
     }
 
-    private _createVariable(name: string, value: string, cljSession: NReplSession): Variable {
+    private async _createVariable(path: string[], value: string, cljSession: NReplSession): Promise<Variable> {
         let variablesReference = 0;
         let variableValue = value;
         
         const variable = {
-            name,
+            name: path[path.length - 1],
             value: variableValue,
             variablesReference
         };
@@ -263,19 +270,35 @@ class CalvaDebugSession extends LoggingDebugSession {
 
     protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request): Promise<void> {
         const cljSession = util.getSession('clj');
+        const debugResponse = state.deref().get(DEBUG_RESPONSE_KEY);
+        let path = [];
         let keyValuePairs: [[string, string]?] = [];
 
         if (args.variablesReference === LOCALS_REFERENCE) {
-            const debugResponse = state.deref().get(DEBUG_RESPONSE_KEY);
             keyValuePairs = debugResponse.locals;
         }
 
-        const variables = keyValuePairs.map(([key, value]) => {
-            return this._createVariable(key, value, cljSession);
-        });
+        const inspectResponse = await cljSession.sendDebugInput(':locals', debugResponse.id, debugResponse.key);
+        // const code = `(clojure.edn/read-string {:default str} ${JSON.stringify(res.inspect)})`;
+        // const cljString = await cljSession.eval(code, cljSession.client.ns).value;
+        const inspectInfo = parseEdn(inspectResponse.inspect);
 
+        // CANNOT DO THIS DUE TO NATURE OF EVALING IN DEBUG CONTEXT
+        // CANNOT DO PROMISE.ALL WITH ASYNC EVAL CALLS INSIDE
+        // const variables = await Promise.all(debugResponse.locals.map(async([key, value]) => {
+        //     // Get type of variable
+        //     const type = await cljSession.eval(`(type ${key})`, cljSession.client.ns).value;
+        //     return {};
+        // }));
+
+        // CANNOT DO THIS EITHER FOR SAME REASON AS PROMISE.ALL
+        // debugResponse.locals.forEach(async ([key, value]) => {
+        //     const type = await cljSession.eval(`(type ${key})`, cljSession.client.ns).value;
+        //     console.log(key);
+        // });
+        
         response.body = {
-            variables
+            variables: []
         };
         this.sendResponse(response);
     }

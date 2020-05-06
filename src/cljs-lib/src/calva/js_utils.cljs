@@ -18,5 +18,4 @@
 (defn clj-stringify [o]
   (-> o
       js->clj
-      prn-str))
-
+      pr-str))
