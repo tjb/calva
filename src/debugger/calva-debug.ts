@@ -75,7 +75,7 @@ class CalvaDebugSession extends LoggingDebugSession {
     // We don't support multiple threads, so we can use a hardcoded ID for the default thread
     static THREAD_ID = 1;
 
-    private _variableHandles = new Handles<string[]>();
+    private _variableHandles = new Handles<{inspector: string, index: number}>();
 
     public constructor() {
         super('calva-debug-logs.txt');
@@ -259,7 +259,7 @@ class CalvaDebugSession extends LoggingDebugSession {
     private async _createVariable(path: string[], value: string, cljSession: NReplSession): Promise<Variable> {
         let variablesReference = 0;
         let variableValue = value;
-        
+
         const variable = {
             name: path[path.length - 1],
             value: variableValue,
@@ -271,17 +271,57 @@ class CalvaDebugSession extends LoggingDebugSession {
     protected async variablesRequest(response: DebugProtocol.VariablesResponse, args: DebugProtocol.VariablesArguments, request?: DebugProtocol.Request): Promise<void> {
         const cljSession = util.getSession('clj');
         const debugResponse = state.deref().get(DEBUG_RESPONSE_KEY);
-        let path = [];
+        const structuredTypes = [
+            ":seq-empty",
+            ":map",
+            ":map-long",
+            ":vector",
+            ":vector-long",
+            ":lazy-seq",
+            ":list",
+            ":list-long",
+            ":set",
+            ":set-long",
+            ":list",
+            ":list-long",
+            ":map",
+            ":map-long",
+            ":array",
+            ":array-long"
+        ];
+        const variables: Variable[] = [];
         let keyValuePairs: [[string, string]?] = [];
 
         if (args.variablesReference === LOCALS_REFERENCE) {
             keyValuePairs = debugResponse.locals;
+        } else {
+            const inspector = this._variableHandles.get(args.variablesReference);
         }
 
-        const inspectResponse = await cljSession.sendDebugInput(':locals', debugResponse.id, debugResponse.key);
-        // const code = `(clojure.edn/read-string {:default str} ${JSON.stringify(res.inspect)})`;
-        // const cljString = await cljSession.eval(code, cljSession.client.ns).value;
-        const inspectInfo = parseEdn(inspectResponse.inspect);
+        let type: string;
+        let inspector: any;
+        let variableName: string;
+        let variableValue: any;
+        let variablesReference: number;
+        for (let i = 0; i < debugResponse.locals.length; i++) {
+            variableName = debugResponse.locals[i][0];
+            variableValue = debugResponse.locals[i][1];
+            variablesReference = 0;
+            type = await cljSession.eval(`(orchard.inspect/value-types ${variableName})`, cljSession.client.ns).value;
+            if (structuredTypes.includes(type)) {
+                inspector = await cljSession.eval(`(orchard.inspect/start (orchard.inspect/fresh) ${variableName})`, cljSession.client.ns).value;
+                variablesReference = this._variableHandles.create({
+                    inspector,
+                    index: 0
+                });
+            }
+            // DEBUG TODO: Try adding type prop and see if it works - may need to set supportsVariableType to true in initialize request
+            variables.push({
+                name: variableName,
+                value: variableValue,
+                variablesReference: variablesReference
+            });
+        }
 
         // CANNOT DO THIS DUE TO NATURE OF EVALING IN DEBUG CONTEXT
         // CANNOT DO PROMISE.ALL WITH ASYNC EVAL CALLS INSIDE
@@ -296,9 +336,9 @@ class CalvaDebugSession extends LoggingDebugSession {
         //     const type = await cljSession.eval(`(type ${key})`, cljSession.client.ns).value;
         //     console.log(key);
         // });
-        
+
         response.body = {
-            variables: []
+            variables
         };
         this.sendResponse(response);
     }
