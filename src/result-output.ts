@@ -128,12 +128,12 @@ export function revealResultsDoc(preserveFocus: boolean = true) {
 }
 
 let scrollToBottomSub: vscode.Disposable;
-const editQueue: string[] = [];
+const editQueue: [string, (insertPosition: vscode.Position) => any][] = [];
 let applyingEdit = false;
 export async function appendToResultsDoc(text: string, callback?: (insertPosition: vscode.Position) => any): Promise<void> {
     let insertPosition: vscode.Position;
     if (applyingEdit) {
-        editQueue.push(text);
+        editQueue.push([text, callback]);
     } else {
         applyingEdit = true;
         const doc = await vscode.workspace.openTextDocument(DOC_URI());
@@ -167,9 +167,6 @@ export async function appendToResultsDoc(text: string, callback?: (insertPositio
             const success = await vscode.workspace.applyEdit(edit);
             applyingEdit = false;
             doc.save();
-            if (callback) {
-                callback(insertPosition);
-            }
 
             if (success) {
                 if (visibleResultsEditors.length > 0) {
@@ -179,10 +176,14 @@ export async function appendToResultsDoc(text: string, callback?: (insertPositio
                     });
                 }
             }
+
+            if (callback) {
+                callback(insertPosition);
+            }
         }
         
         if (editQueue.length > 0) {
-            return appendToResultsDoc(editQueue.shift());
+            return appendToResultsDoc.apply(null, editQueue.shift());
         }
     };
 }

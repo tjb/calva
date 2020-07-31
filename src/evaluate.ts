@@ -73,7 +73,9 @@ async function evaluateCode(code: string, options) {
         try {
             let value = await context.value;
             value = util.stripAnsi(context.pprintOut || value);
-            const insertLocation = await resultsOutput.appendToResultsDoc(value);
+            const insertLocation = await resultsOutput.appendToResultsDoc(value, (insertPosition) => {
+                console.log(`${value} printed at ${insertPosition.character},${insertPosition.line}`);
+            });
             resultsOutput.setSession(session, context.ns);
             util.updateREPLSessionType();
 
@@ -85,7 +87,7 @@ async function evaluateCode(code: string, options) {
             }
             return [value, insertLocation, true];
         } catch (e) {
-            if (!err.length) { // venantius/ultra outputs errors on stdout, it seems.
+            if (!err.length) {
                 err = out;
             }
             const insertLocation = await resultsOutput.appendToResultsDoc(`; ${normalizeNewLinesAndJoin(err, true)}`);
@@ -132,25 +134,61 @@ async function evaluateSelection(document: {}, options) {
             annotations.decorateSelection("", codeSelection, editor, undefined, annotations.AnnotationStatus.PENDING);
             let c = codeSelection.start.character
 
-            const [value, insertLocation, success] = await evaluateCode(code, { ...options, ns, line, column, filePath, session });
-            if (success) {
-                if (replace) {
-                    const indent = `${' '.repeat(c)}`,
-                        edit = vscode.TextEdit.replace(codeSelection, value.replace(/\n/gm, "\n" + indent)),
-                        wsEdit = new vscode.WorkspaceEdit();
-                    wsEdit.set(editor.document.uri, [edit]);
-                    vscode.workspace.applyEdit(wsEdit);
-                } else if (asComment) {
-                    addAsComment(c, value, codeSelection, editor, selection);
-                } else {
-                    annotations.decorateSelection(value, codeSelection, editor, insertLocation, annotations.AnnotationStatus.SUCCESS);
-                    annotations.decorateResults(value, false, codeSelection, editor);
+            let err: string[] = [], out: string[] = [];
+
+            await session.eval("(in-ns '" + ns + ")", session.client.ns).value;
+
+            let context: NReplEvaluation = session.eval(code, ns, {
+                file: filePath,
+                line: line + 1,
+                column: column + 1,
+                stdout: (m) => {
+                    out.push(m);
+                    resultsOutput.appendToResultsDoc(normalizeNewLines(m));
+                },
+                stderr: m => err.push(m),
+                pprintOptions: options.pprintOptions || state.config().prettyPrintingOptions
+            });
+
+            resultsOutput.setSession(session, context.ns);
+            util.updateREPLSessionType();
+            try {
+                let value = await context.value;
+                value = util.stripAnsi(context.pprintOut || value);
+                if (err.length > 0) {
+                    await resultsOutput.appendToResultsDoc(`; ${normalizeNewLinesAndJoin(err, true)}`);
+                    if (context.stacktrace) {
+                        await resultsOutput.printStacktrace(context.stacktrace);
+                    }
                 }
-            } else {
-                annotations.decorateSelection(value, codeSelection, editor, insertLocation, annotations.AnnotationStatus.ERROR);
-                annotations.decorateResults(value, true, codeSelection, editor);
-                if (asComment) {
-                    addAsComment(c, value, codeSelection, editor, selection);
+                await resultsOutput.appendToResultsDoc(value, (insertPosition) => {
+                    if (replace) {
+                        const indent = `${' '.repeat(c)}`,
+                            edit = vscode.TextEdit.replace(codeSelection, value.replace(/\n/gm, "\n" + indent)),
+                            wsEdit = new vscode.WorkspaceEdit();
+                        wsEdit.set(editor.document.uri, [edit]);
+                        vscode.workspace.applyEdit(wsEdit);
+                    } else if (asComment) {
+                        addAsComment(c, value, codeSelection, editor, selection);
+                    } else {
+                        annotations.decorateSelection(value, codeSelection, editor, insertPosition, annotations.AnnotationStatus.SUCCESS);
+                        annotations.decorateResults(value, false, codeSelection, editor);
+                    }
+                });
+            } catch (e) {
+                if (!err.length) { // venantius/ultra outputs errors on stdout, it seems.
+                    err = out;
+                }
+                const result = util.stripAnsi(err.join("\n"));
+                await resultsOutput.appendToResultsDoc(`; ${normalizeNewLinesAndJoin(err, true)}`, (insertPosition) => {
+                    annotations.decorateSelection(result, codeSelection, editor, insertPosition, annotations.AnnotationStatus.ERROR);
+                    annotations.decorateResults(result, true, codeSelection, editor);
+                    if (asComment) {
+                        addAsComment(c, result, codeSelection, editor, selection);
+                    }
+                });
+                if (context.stacktrace) {
+                    await resultsOutput.printStacktrace(context.stacktrace);
                 }
             }
         }
@@ -197,7 +235,7 @@ function evaluateCurrentForm(document = {}, options = {}) {
         .catch(printWarningForError);
 }
 
-async function loadFile(document, callback: () => { }, pprintOptions: PrettyPrintingOptions) {
+async function loadFile(document, callback: () => {}, pprintOptions: PrettyPrintingOptions) {
     let current = state.deref(),
         doc = util.getDocument(document),
         fileName = util.getFileName(doc),
@@ -288,13 +326,13 @@ async function togglePrettyPrint() {
     const config = vscode.workspace.getConfiguration('calva'),
         pprintConfigKey = 'prettyPrintingOptions',
         pprintOptions = config.get(pprintConfigKey) as PrettyPrintingOptions;
-        pprintOptions.enabled = !pprintOptions.enabled;
+    pprintOptions.enabled = !pprintOptions.enabled;
     await config.update(pprintConfigKey, pprintOptions, vscode.ConfigurationTarget.Global);
     statusbar.update();
 };
 
 async function instrumentTopLevelForm() {
-    evaluateSelection({}, {topLevel: true, pprintOptions: state.config().prettyPrintingOptions, debug: true})
+    evaluateSelection({}, { topLevel: true, pprintOptions: state.config().prettyPrintingOptions, debug: true })
         .catch(printWarningForError);
     state.analytics().logEvent(DEBUG_ANALYTICS.CATEGORY, DEBUG_ANALYTICS.EVENT_ACTIONS.INSTRUMENT_FORM).send();
 }
