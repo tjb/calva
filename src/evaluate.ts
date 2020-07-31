@@ -46,7 +46,7 @@ function addAsComment(c: number, result: string, codeSelection: vscode.Selection
     });
 }
 
-async function evaluateCode(code: string, options) {
+async function evaluateCode(code: string, options, callback?: (resultLocation: vscode.Location) => any) {
     const pprintOptions = options.pprintOptions || state.config().prettyPrintingOptions;
     const line = options.line;
     const column = options.column;
@@ -73,9 +73,7 @@ async function evaluateCode(code: string, options) {
         try {
             let value = await context.value;
             value = util.stripAnsi(context.pprintOut || value);
-            const insertLocation = await resultsOutput.appendToResultsDoc(value, (insertPosition) => {
-                console.log(`${value} printed at ${insertPosition.character},${insertPosition.line}`);
-            });
+            const insertLocation = await resultsOutput.appendToResultsDoc(value, callback);
             resultsOutput.setSession(session, context.ns);
             util.updateREPLSessionType();
 
@@ -161,7 +159,7 @@ async function evaluateSelection(document: {}, options) {
                         await resultsOutput.printStacktrace(context.stacktrace);
                     }
                 }
-                await resultsOutput.appendToResultsDoc(value, (insertPosition) => {
+                await resultsOutput.appendToResultsDoc(value, (insertLocation) => {
                     if (replace) {
                         const indent = `${' '.repeat(c)}`,
                             edit = vscode.TextEdit.replace(codeSelection, value.replace(/\n/gm, "\n" + indent)),
@@ -171,7 +169,7 @@ async function evaluateSelection(document: {}, options) {
                     } else if (asComment) {
                         addAsComment(c, value, codeSelection, editor, selection);
                     } else {
-                        annotations.decorateSelection(value, codeSelection, editor, insertPosition, annotations.AnnotationStatus.SUCCESS);
+                        annotations.decorateSelection(value, codeSelection, editor, insertLocation, annotations.AnnotationStatus.SUCCESS);
                         annotations.decorateResults(value, false, codeSelection, editor);
                     }
                 });
@@ -180,8 +178,8 @@ async function evaluateSelection(document: {}, options) {
                     err = out;
                 }
                 const result = util.stripAnsi(err.join("\n"));
-                await resultsOutput.appendToResultsDoc(`; ${normalizeNewLinesAndJoin(err, true)}`, (insertPosition) => {
-                    annotations.decorateSelection(result, codeSelection, editor, insertPosition, annotations.AnnotationStatus.ERROR);
+                await resultsOutput.appendToResultsDoc(`; ${normalizeNewLinesAndJoin(err, true)}`, (insertLocation) => {
+                    annotations.decorateSelection(result, codeSelection, editor, insertLocation, annotations.AnnotationStatus.ERROR);
                     annotations.decorateResults(result, true, codeSelection, editor);
                     if (asComment) {
                         addAsComment(c, result, codeSelection, editor, selection);

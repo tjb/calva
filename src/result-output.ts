@@ -128,9 +128,9 @@ export function revealResultsDoc(preserveFocus: boolean = true) {
 }
 
 let scrollToBottomSub: vscode.Disposable;
-const editQueue: [string, (insertPosition: vscode.Position) => any][] = [];
+const editQueue: [string, (insertLocation: vscode.Location) => any][] = [];
 let applyingEdit = false;
-export async function appendToResultsDoc(text: string, callback?: (insertPosition: vscode.Position) => any): Promise<void> {
+export async function appendToResultsDoc(text: string, callback?: (insertLocation: vscode.Location) => any): Promise<void> {
     let insertPosition: vscode.Position;
     if (applyingEdit) {
         editQueue.push([text, callback]);
@@ -178,7 +178,7 @@ export async function appendToResultsDoc(text: string, callback?: (insertPositio
             }
 
             if (callback) {
-                callback(insertPosition);
+                callback(new vscode.Location(DOC_URI(), insertPosition));
             }
         }
         
