@@ -130,8 +130,8 @@ export function revealResultsDoc(preserveFocus: boolean = true) {
 let scrollToBottomSub: vscode.Disposable;
 const editQueue: string[] = [];
 let applyingEdit = false;
-export async function appendToResultsDoc(text: string): Promise<vscode.Location> {
-    let insertPos: vscode.Position;
+export async function appendToResultsDoc(text: string, callback?: (insertPosition: vscode.Position) => any): Promise<void> {
+    let insertPosition: vscode.Position;
     if (applyingEdit) {
         editQueue.push(text);
     } else {
@@ -143,8 +143,8 @@ export async function appendToResultsDoc(text: string): Promise<vscode.Location>
             const currentContent = doc.getText();
             const lastLineEmpty = currentContent.match(/\n$/);
             const appendText = `${lastLineEmpty ? '' : '\n'}${ansiStrippedText}\n`;
-            insertPos = doc.positionAt(Infinity);
-            edit.insert(DOC_URI(), insertPos, `${appendText}`);
+            insertPosition = doc.positionAt(Infinity);
+            edit.insert(DOC_URI(), insertPosition, `${appendText}`);
             if (scrollToBottomSub) {
                 scrollToBottomSub.dispose();
             }
@@ -167,6 +167,9 @@ export async function appendToResultsDoc(text: string): Promise<vscode.Location>
             const success = await vscode.workspace.applyEdit(edit);
             applyingEdit = false;
             doc.save();
+            if (callback) {
+                callback(insertPosition);
+            }
 
             if (success) {
                 if (visibleResultsEditors.length > 0) {
@@ -179,9 +182,8 @@ export async function appendToResultsDoc(text: string): Promise<vscode.Location>
         }
         
         if (editQueue.length > 0) {
-            return await appendToResultsDoc(editQueue.shift());
+            return appendToResultsDoc(editQueue.shift());
         }
-        return new vscode.Location(DOC_URI(), insertPos);
     };
 }
 
